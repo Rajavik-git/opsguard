@@ -1,0 +1,27 @@
+# OpsGuard configuration. Providers are tried in order (fallback chain).
+# Providers without an API key in the environment are skipped automatically;
+# the offline mock is always appended as last resort so the tool never hard-fails.
+llm:
+  chain:
+    - provider: openai
+      model: gpt-4.1-mini
+    - provider: gemini
+      model: gemini-2.5-flash
+  max_retries: 3
+  max_concurrency: 4          # protects provider rate limits (RPM/TPM)
+  budget_usd_per_run: 0.25    # hard stop on cost per investigation
+
+context:
+  total_tokens: 6000
+  evidence_tokens: 1500
+  runbook_tokens: 1500
+  keep_last_turns: 4
+
+agents:
+  max_tool_steps: 8
+
+paths:
+  policy: config/policy.yaml
+  runbooks: data/runbooks
+  scenarios: data/cluster/scenarios.json
+  attacks: redteam/attacks.yaml
