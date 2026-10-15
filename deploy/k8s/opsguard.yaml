@@ -1,0 +1,99 @@
+# Least-privilege deployment of the OpsGuard MCP server inside a cluster.
+# The agent can READ pods/events/logs/deployments in allow-listed namespaces — nothing else.
+# No access to Secrets, no write verbs, no exec: guardrails are backed by Kubernetes RBAC.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opsguard
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opsguard
+  namespace: opsguard
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: opsguard-readonly
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "services", "endpoints"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list"]
+---
+# Bound per namespace (RoleBinding, not ClusterRoleBinding) = same allow-list as config/policy.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opsguard-readonly
+  namespace: payments
+subjects:
+  - kind: ServiceAccount
+    name: opsguard
+    namespace: opsguard
+roleRef:
+  kind: ClusterRole
+  name: opsguard-readonly
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opsguard
+  namespace: opsguard
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: opsguard }
+  template:
+    metadata:
+      labels: { app: opsguard }
+    spec:
+      serviceAccountName: opsguard
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: opsguard
+          image: ghcr.io/rajavik-git/opsguard:0.1.0
+          args: ["mcp"]
+          env:
+            - { name: OPSGUARD_MCP_TRANSPORT, value: "streamable-http" }
+            - name: OPENAI_API_KEY
+              valueFrom: { secretKeyRef: { name: opsguard-llm, key: openai, optional: true } }
+            - name: GEMINI_API_KEY
+              valueFrom: { secretKeyRef: { name: opsguard-llm, key: gemini, optional: true } }
+          ports:
+            - containerPort: 8000
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# Egress restricted to DNS + HTTPS (LLM APIs, Kubernetes API) — defence against exfiltration.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: opsguard-egress
+  namespace: opsguard
+spec:
+  podSelector:
+    matchLabels: { app: opsguard }
+  policyTypes: ["Egress"]
+  egress:
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
