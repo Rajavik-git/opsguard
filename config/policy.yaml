@@ -1,0 +1,52 @@
+# Command policy enforced on every action proposed by the agents (output guardrail).
+# Evaluated top to bottom: first matching rule wins. Default: require_approval.
+command_rules:
+  # --- Hard blocks: never proposed, whatever the environment --------------------
+  - id: BLOCK_NS_DELETE
+    pattern: '\b(kubectl|oc)\b.*\bdelete\s+(ns|namespace|namespaces)\b'
+    decision: block
+    reason: Suppression de namespace interdite
+  - id: BLOCK_MASS_DELETE
+    pattern: '\b(kubectl|oc)\b.*\bdelete\b.*(--all\b|-A\b|--all-namespaces)'
+    decision: block
+    reason: Suppression massive interdite
+  - id: BLOCK_DRAIN
+    pattern: '\b(kubectl|oc)\b\s+(drain|cordon)\b'
+    decision: block
+    reason: Drain/cordon de nœuds hors périmètre de l'assistant
+  - id: BLOCK_SECRET_READ
+    pattern: '\b(kubectl|oc)\b.*\b(get|describe|edit)\s+secrets?\b|base64\s+(-d|--decode)'
+    decision: block
+    reason: Lecture de secrets interdite
+  - id: BLOCK_EXEC
+    pattern: '\b(kubectl|oc)\b\s+(exec|cp|port-forward|debug)\b'
+    decision: block
+    reason: Accès interactif aux conteneurs interdit
+  - id: BLOCK_SHELL_DESTRUCTIVE
+    pattern: '\brm\s+-[a-z]*r[a-z]*f|\bmkfs\b|\bdd\s+if=|:\(\)\s*\{'
+    decision: block
+    reason: Commande shell destructrice
+  - id: BLOCK_EGRESS
+    pattern: '\b(curl|wget|nc|ncat|scp)\b'
+    decision: block
+    reason: Appel réseau sortant (risque d'exfiltration)
+  - id: BLOCK_RBAC
+    pattern: '\b(kubectl|oc)\b.*\b(clusterrolebinding|rolebinding|adm\s+policy)\b'
+    decision: block
+    reason: Modification RBAC interdite
+  # --- Read-only: allowed ------------------------------------------------------
+  - id: ALLOW_READONLY
+    pattern: '^\s*(kubectl|oc)\s+(get|describe|logs|top|explain|events)\b(?!.*\bsecrets?\b)|^\s*(kubectl|oc)\s+rollout\s+(status|history)\b'
+    decision: allow
+    reason: Lecture seule
+  # --- Mutations: human approval ----------------------------------------------
+  - id: APPROVAL_MUTATION
+    pattern: '^\s*(kubectl|oc)\s+(rollout|scale|set|patch|apply|annotate|label|autoscale)\b'
+    decision: require_approval
+    reason: Modification d'état — validation humaine obligatoire
+
+# Namespaces the tools may read (least privilege for the agent's tool layer).
+tool_namespace_allowlist: [payments, checkout, reporting, gateway]
+
+# Untrusted data (logs, events, RAG chunks) larger than this is truncated.
+max_untrusted_tokens: 1200
