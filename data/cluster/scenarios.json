@@ -1,0 +1,84 @@
+{
+  "payments-crashloop": {
+    "description": "payments-api en CrashLoopBackOff après un déploiement",
+    "namespace": "payments",
+    "environment": "prod",
+    "pods": [
+      {"name": "payments-api-7d9f8-x2k4l", "deployment": "payments-api", "status": "CrashLoopBackOff", "ready": "0/1", "restarts": 14, "node": "worker-12"},
+      {"name": "payments-api-7d9f8-q8m2z", "deployment": "payments-api", "status": "CrashLoopBackOff", "ready": "0/1", "restarts": 13, "node": "worker-07"},
+      {"name": "payments-worker-5c6b-91kdf", "deployment": "payments-worker", "status": "Running", "ready": "1/1", "restarts": 0, "node": "worker-03"}
+    ],
+    "events": [
+      "Warning  BackOff  pod/payments-api-7d9f8-x2k4l  Back-off restarting failed container api",
+      "Normal   Pulled   pod/payments-api-7d9f8-x2k4l  Container image registry.bank.local/payments-api:2.14.0 already present",
+      "Normal   ScalingReplicaSet  deployment/payments-api  Scaled up replica set payments-api-7d9f8 to 2"
+    ],
+    "logs": {
+      "payments-api-7d9f8-x2k4l": "2026-10-15T08:01:02Z INFO  Starting payments-api v2.14.0\n2026-10-15T08:01:02Z INFO  Loading config from env\n2026-10-15T08:01:03Z ERROR psycopg.OperationalError: connection to server at \"pg-payments.payments.svc\" (10.42.3.17), port 5432 failed: Connection refused\n2026-10-15T08:01:03Z FATAL Unable to initialise database pool, exiting with code 1",
+      "payments-api-7d9f8-q8m2z": "2026-10-15T08:01:05Z ERROR psycopg.OperationalError: connection to server at \"pg-payments.payments.svc\" port 5432 failed: Connection refused\n2026-10-15T08:01:05Z FATAL exiting with code 1"
+    },
+    "deployments": {
+      "payments-api": {"replicas": 2, "available": 0, "image": "registry.bank.local/payments-api:2.14.0", "previous_image": "registry.bank.local/payments-api:2.13.2", "env": ["DB_HOST=pg-payments.payments.svc", "DB_PORT=5432", "DB_PASSWORD=<secretKeyRef:pg-payments/password>"], "resources": {"limits": {"memory": "512Mi", "cpu": "500m"}}}
+    },
+    "expected": {"root_cause": "db_connection", "runbook": "RB-001"}
+  },
+
+  "checkout-oom": {
+    "description": "checkout redémarre en boucle sous charge",
+    "namespace": "checkout",
+    "environment": "prod",
+    "pods": [
+      {"name": "checkout-6f4c9-ab12c", "deployment": "checkout", "status": "Running", "ready": "1/1", "restarts": 9, "node": "worker-21", "last_termination": "OOMKilled (exit code 137)"}
+    ],
+    "events": [
+      "Warning  OOMKilling  node/worker-21  Memory cgroup out of memory: Killed process 4121 (java)",
+      "Normal   Started     pod/checkout-6f4c9-ab12c  Started container checkout"
+    ],
+    "logs": {
+      "checkout-6f4c9-ab12c": "2026-10-15T07:55:10Z INFO  JVM heap usage 92% (max 1Gi)\n2026-10-15T07:55:41Z WARN  GC overhead limit approaching\n2026-10-15T07:55:58Z INFO  Processing batch of 4200 carts"
+    },
+    "deployments": {
+      "checkout": {"replicas": 1, "available": 1, "image": "registry.bank.local/checkout:5.2.1", "env": ["JAVA_OPTS=-Xmx1g"], "resources": {"limits": {"memory": "1Gi", "cpu": "1"}}}
+    },
+    "expected": {"root_cause": "oom", "runbook": "RB-002"}
+  },
+
+  "reporting-imagepull": {
+    "description": "nouveau déploiement de reporting bloqué",
+    "namespace": "reporting",
+    "environment": "staging",
+    "pods": [
+      {"name": "reporting-api-84b7d-zz9pl", "deployment": "reporting-api", "status": "ImagePullBackOff", "ready": "0/1", "restarts": 0, "node": "worker-02"}
+    ],
+    "events": [
+      "Warning  Failed  pod/reporting-api-84b7d-zz9pl  Failed to pull image \"registry.bank.local/reporting-api:3.0.0-rc1\": manifest unknown",
+      "Warning  Failed  pod/reporting-api-84b7d-zz9pl  Error: ErrImagePull"
+    ],
+    "logs": {"reporting-api-84b7d-zz9pl": ""},
+    "deployments": {
+      "reporting-api": {"replicas": 1, "available": 0, "image": "registry.bank.local/reporting-api:3.0.0-rc1", "previous_image": "registry.bank.local/reporting-api:2.9.4", "env": [], "resources": {"limits": {"memory": "256Mi"}}}
+    },
+    "expected": {"root_cause": "image_pull", "runbook": "RB-003"}
+  },
+
+  "gateway-readiness": {
+    "description": "erreurs 503 sur l'API gateway",
+    "namespace": "gateway",
+    "environment": "prod",
+    "pods": [
+      {"name": "gateway-5d8f7-mn3kq", "deployment": "gateway", "status": "Running", "ready": "0/1", "restarts": 0, "node": "worker-09"},
+      {"name": "gateway-5d8f7-p0w9e", "deployment": "gateway", "status": "Running", "ready": "0/1", "restarts": 0, "node": "worker-11"}
+    ],
+    "events": [
+      "Warning  Unhealthy  pod/gateway-5d8f7-mn3kq  Readiness probe failed: HTTP probe failed with statuscode: 404",
+      "Warning  Unhealthy  pod/gateway-5d8f7-p0w9e  Readiness probe failed: HTTP probe failed with statuscode: 404"
+    ],
+    "logs": {
+      "gateway-5d8f7-mn3kq": "2026-10-15T08:10:00Z INFO  gateway listening on :8080\n2026-10-15T08:10:05Z INFO  GET /health/ready 404 (route renamed to /readyz in v4)"
+    },
+    "deployments": {
+      "gateway": {"replicas": 2, "available": 0, "image": "registry.bank.local/gateway:4.0.0", "env": [], "readinessProbe": {"httpGet": {"path": "/health/ready", "port": 8080}}, "resources": {"limits": {"memory": "256Mi"}}}
+    },
+    "expected": {"root_cause": "readiness_probe", "runbook": "RB-004"}
+  }
+}
